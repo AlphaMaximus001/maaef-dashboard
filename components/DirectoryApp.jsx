@@ -29,7 +29,6 @@ export default function DirectoryApp({ mode, role, email }) {
 
   const [db, setDb] = useState({ offices: [], wings: [], posts: [], employees: [], postings: [] })
   const [sel, setSel] = useState(null)
-  const [open, setOpen] = useState({})
   const [modal, setModal] = useState(null)
   const [toast, setToast] = useState('')
   const [q, setQ] = useState('')
@@ -82,6 +81,9 @@ export default function DirectoryApp({ mode, role, email }) {
 
   const pathOf = id => { const out = []; let c = officeMap[id]; while (c) { out.unshift(c); c = c.parent_id ? officeMap[c.parent_id] : null } return out }
   const pathStr = id => pathOf(id).map(o => lbl(o.name, 'Untitled ' + LEVELS[o.type].label.toLowerCase())).join(' › ')
+  // ancestors of id, stopping at rootId — keeps a scoped viewer's chart from climbing into offices they can't see
+  const pathFromRoot = (id, rootId) => { const out = []; let c = officeMap[id]; while (c) { out.unshift(c); if (c.id === rootId) break; c = c.parent_id ? officeMap[c.parent_id] : null } return out }
+  const underRoot = (id, rootId) => { let c = officeMap[id]; while (c) { if (c.id === rootId) return true; c = c.parent_id ? officeMap[c.parent_id] : null } return false }
   const descendants = id => { let out = []; kidsOf(id).forEach(k => { out.push(k.id); out = out.concat(descendants(k.id)) }); return out }
   const rollup = id => {
     const ids = [id].concat(descendants(id)); let posts = 0, vac = 0
@@ -90,7 +92,7 @@ export default function DirectoryApp({ mode, role, email }) {
   }
 
   useEffect(() => {
-    if (!loading && !sel && roots.length) { setSel(roots[0].id); setOpen(o => ({ ...o, [roots[0].id]: true })) }
+    if (!loading && !sel && roots.length) setSel(roots[0].id)
   }, [loading, sel, roots])
 
   // ---------- writes ----------
@@ -101,9 +103,10 @@ export default function DirectoryApp({ mode, role, email }) {
     const t = openTerm(empId)
     if (t) die(await supabase.from('postings').update({ to_date: date }).eq('id', t.id))
   }
-  const conflictOn = (postId, empId, desig) => {
-    if (!norm(desig)) return null
-    return occOf(postId).find(e => e.id !== empId && norm(e.designation) === norm(desig)) || null
+  const conflictOn = (postId, empId) => {
+    const post = db.posts.find(p => p.id === postId)
+    if (!post || !norm(post.title)) return null
+    return occOf(postId).find(e => e.id !== empId) || null
   }
   const assign = async (empId, postId, date) => {
     const emp = db.employees.find(e => e.id === empId)
@@ -126,9 +129,10 @@ export default function DirectoryApp({ mode, role, email }) {
     const s = norm(q); if (s.length < 2) return null
     const out = []
     db.employees.forEach(e => {
-      if (norm(e.name).includes(s) || norm(e.designation).includes(s) || norm(e.phone).includes(s)) {
-        const p = e.post_id ? db.posts.find(x => x.id === e.post_id) : null
-        out.push({ t: lbl(e.name, 'Unnamed person'), s: lbl(e.designation, '—') + ' · ' + (p ? lbl(p.title, 'Untitled post') : 'Bench'), go: 'emp', id: e.id })
+      const p = e.post_id ? db.posts.find(x => x.id === e.post_id) : null
+      const d = p ? lbl(p.title, 'Untitled post') : 'Bench'
+      if (norm(e.name).includes(s) || norm(d).includes(s) || norm(e.phone).includes(s)) {
+        out.push({ t: lbl(e.name, 'Unnamed person'), s: d, go: 'emp', id: e.id })
       }
     })
     db.posts.forEach(p => {
@@ -141,7 +145,7 @@ export default function DirectoryApp({ mode, role, email }) {
     return out.slice(0, 24)
   }, [q, db]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  const goOffice = id => { pathOf(id).forEach(o => setOpen(v => ({ ...v, [o.id]: true }))); setSel(id); setQ('') }
+  const goOffice = id => { setSel(id); setQ('') }
 
   // ---------- render helpers ----------
   const WingChip = ({ id, style }) => {
@@ -149,29 +153,29 @@ export default function DirectoryApp({ mode, role, email }) {
     return <span className="wg" style={{ background: w.color, ...(style || {}) }}>{w.label}</span>
   }
 
-  const TreeNode = ({ id, depth }) => {
+  const CHART_DEPTH = 2 // center + this many levels below, before a box needs a click to go further
+
+  const ChartNode = ({ id, depth }) => {
     const o = officeMap[id]; if (!o) return null
     const kids = kidsOf(id)
-    const isOpen = open[id] === undefined ? depth === 0 : open[id]
     const r = rollup(id)
     const L = LEVELS[o.type]
+    const showKids = kids.length > 0 && depth < CHART_DEPTH
+    const buried = kids.length > 0 && depth >= CHART_DEPTH
     return (
-      <div className="node">
-        <div className={'row' + (sel === id ? ' on' : '')} onClick={() => setSel(id)}
+      <li>
+        <div className={'obox' + (sel === id ? ' on' : '')} onClick={() => setSel(id)}
           tabIndex={0} onKeyDown={e => { if (e.key === 'Enter') setSel(id) }}>
-          <button className={'tw' + (kids.length ? '' : ' hide')}
-            onClick={e => { e.stopPropagation(); setOpen(v => ({ ...v, [id]: !isOpen })) }}>
-            {kids.length ? (isOpen ? '▾' : '▸') : ''}
-          </button>
           <span className="lvl" style={{ background: L.color }}>{L.abbr}</span>
           <span className="nm">{lbl(o.name, 'Untitled ' + L.label.toLowerCase())}</span>
           <WingChip id={o.wing_id} />
           {r.posts > 0 && <span className={'tag' + (r.vac ? ' v' : '')}>{r.filled}/{r.posts}</span>}
+          {buried && <span className="more">+{kids.length} below · open</span>}
         </div>
-        {kids.length > 0 && isOpen && (
-          <div className="kids">{kids.map(k => <TreeNode key={k.id} id={k.id} depth={depth + 1} />)}</div>
+        {showKids && (
+          <ul>{kids.map(k => <ChartNode key={k.id} id={k.id} depth={depth + 1} />)}</ul>
         )}
-      </div>
+      </li>
     )
   }
 
@@ -206,7 +210,7 @@ export default function DirectoryApp({ mode, role, email }) {
                   <div className="occ-i" key={e.id}>
                     <div className="who">
                       <b>{lbl(e.name, 'Unnamed person')}</b>
-                      <i>{lbl(e.designation, 'designation not set')}{t ? ' · since ' + fmt(t.from_date) : ''}</i>
+                      <i>{lbl(p.title, 'designation not set')}{t ? ' · since ' + fmt(t.from_date) : ''}</i>
                     </div>
                     <div className="num">{e.phone || '—'}</div>
                     <div style={{ display: 'flex', gap: 4 }}>
@@ -366,7 +370,27 @@ export default function DirectoryApp({ mode, role, email }) {
                 ? <div className="hint" style={{ padding: '6px 4px' }}>
                   No offices are visible to you yet. Ask a superadmin to grant you a zone, circle or district.
                 </div>
-                : roots.map(r => <TreeNode key={r.id} id={r.id} depth={0} />)}
+                : roots.map(r => {
+                  const centerId = sel && officeMap[sel] && underRoot(sel, r.id) ? sel : r.id
+                  const anc = pathFromRoot(centerId, r.id)
+                  return (
+                    <div className="orgroot" key={r.id}>
+                      {anc.length > 1 && (
+                        <div className="chart-crumb">
+                          {anc.map((p, i) => (
+                            <span key={p.id}>
+                              {i > 0 && ' › '}
+                              <button className="cbtn" disabled={i === anc.length - 1} onClick={() => setSel(p.id)}>
+                                {lbl(p.name, 'Untitled ' + LEVELS[p.type].label.toLowerCase())}
+                              </button>
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                      <ul className="orgtree"><ChartNode id={centerId} depth={0} /></ul>
+                    </div>
+                  )
+                })}
           </div>
 
           <div className="bench">
@@ -382,7 +406,7 @@ export default function DirectoryApp({ mode, role, email }) {
                 : benched().map(e => (
                   <button className="bchip" key={e.id} onClick={() => setModal({ kind: 'record', empId: e.id })}>
                     <span className="n">{lbl(e.name, 'Unnamed person')}</span>
-                    <span className="d">{lbl(e.designation, '—')}</span>
+                    <span className="d">—</span>
                   </button>
                 ))}
             </div>
@@ -521,7 +545,7 @@ function Dialogs({ modal, setModal, db, supabase, role, helpers }) {
           {editor && <button className="btn" onClick={() => setModal({ kind: 'move', empId: e.id })}>Transfer</button>}
         </>}>
         <dl className="kv">
-          <dt>Designation</dt><dd>{lbl(e.designation, '—')}</dd>
+          <dt>Designation</dt><dd>{cur ? lbl(cur.title, 'Untitled post') : '—'}</dd>
           <dt>Personal no.</dt><dd className="mn">{lbl(e.phone, '—')}</dd>
           <dt>Current charge</dt>
           <dd>{cur
@@ -697,12 +721,11 @@ function PostDialog({ modal, shut, supabase, Sheet, pathStr, guard, die, say }) 
 function EmpDialog({ modal, shut, supabase, Sheet, assign, guard, die, say }) {
   const ex = modal.existing
   const [name, setName] = useState(ex?.name || '')
-  const [desig, setDesig] = useState(ex?.designation || '')
   const [phone, setPhone] = useState(ex?.phone || '')
   const [notes, setNotes] = useState(ex?.notes || '')
 
   const save = () => guard(async () => {
-    const v = { name: name.trim(), designation: desig.trim(), phone: phone.trim(), notes: notes.trim() }
+    const v = { name: name.trim(), phone: phone.trim(), notes: notes.trim() }
     if (ex) die(await supabase.from('employees').update(v).eq('id', ex.id))
     else {
       const rows = die(await supabase.from('employees').insert(v).select())
@@ -714,22 +737,17 @@ function EmpDialog({ modal, shut, supabase, Sheet, assign, guard, die, say }) {
   return (
     <Sheet title={ex ? 'Edit person' : 'New employee card'}
       footer={<><button className="btn gh" onClick={shut}>Cancel</button><button className="btn" onClick={save}>Save person</button></>}>
-      <div className="two">
-        <div className="fld"><label>Full name</label>
-          <input value={name} onChange={e => setName(e.target.value)} placeholder="e.g. Ram Kumar Verma" /></div>
-        <div className="fld"><label>Designation</label>
-          <input value={desig} onChange={e => setDesig(e.target.value)} list="dl_desig2" placeholder="Executive Engineer" /></div>
-      </div>
+      <div className="fld"><label>Full name</label>
+        <input value={name} onChange={e => setName(e.target.value)} placeholder="e.g. Ram Kumar Verma" /></div>
       <div className="fld"><label>Personal contact number</label>
         <input className="mono" value={phone} onChange={e => setPhone(e.target.value)} placeholder="98765 43210" /></div>
       <div className="fld"><label>Notes on this person</label>
         <textarea value={notes} onChange={e => setNotes(e.target.value)}
           placeholder="Cadre, batch, WhatsApp, who introduced you, anything worth remembering" /></div>
       <div className="hint">
-        Every field is optional. Leave designation blank and the one-per-designation rule won&apos;t apply to this person.
+        Every field is optional. Designation comes from whichever card this person holds — attach them to a post to give them one.
         {!ex && ' New people start on the bench unless you post them straight away.'}
       </div>
-      <datalist id="dl_desig2">{DESIGS.map(d => <option key={d} value={d} />)}</datalist>
     </Sheet>
   )
 }
@@ -760,11 +778,11 @@ function MoveDialog({ modal, shut, db, Sheet, postsOf, occOf, pathStr, officeMap
     if (!options.find(p => p.id === postId)) setPostId(options[0]?.id || '')
   }, [officeId]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  const clash = postId && emp ? conflictOn(postId, emp.id, emp.designation) : null
+  const clash = postId && emp ? conflictOn(postId, emp.id) : null
 
   const confirm = () => guard(async () => {
     if (!postId || !emp) return
-    if (clash) { say('Blocked — same designation already on that card'); return }
+    if (clash) { say('Blocked — this card already has someone on it'); return }
     if (emp.post_id === postId) { say('Already on this post'); shut(); return }
     await assign(emp.id, postId, date)
     shut(); say('Posted')
@@ -804,7 +822,7 @@ function MoveDialog({ modal, shut, db, Sheet, postsOf, occOf, pathStr, officeMap
               {pool.map(e => {
                 const p = e.post_id ? db.posts.find(x => x.id === e.post_id) : null
                 return <option key={e.id} value={e.id}>
-                  {lbl(e.name, 'Unnamed')} — {lbl(e.designation, '—')} {p ? `(on ${lbl(p.title, 'untitled post')})` : '(bench)'}
+                  {lbl(e.name, 'Unnamed')} {p ? `— ${lbl(p.title, 'untitled post')}` : '(bench)'}
                 </option>
               })}
             </select>
@@ -813,8 +831,7 @@ function MoveDialog({ modal, shut, db, Sheet, postsOf, occOf, pathStr, officeMap
       ) : (
         <>
           <div className="hint" style={{ marginTop: -2 }}>
-            {lbl(emp0?.designation, 'no designation')}
-            {emp0?.post_id ? ` · currently ${lbl(db.posts.find(p => p.id === emp0.post_id)?.title, 'untitled post')}` : ' · on bench'}
+            {emp0?.post_id ? `Currently ${lbl(db.posts.find(p => p.id === emp0.post_id)?.title, 'untitled post')}` : 'Currently on bench'}
           </div>
           <div className="fld">
             <label>Office</label>
@@ -839,7 +856,7 @@ function MoveDialog({ modal, shut, db, Sheet, postsOf, occOf, pathStr, officeMap
       <div className="fld"><label>Effective date</label>
         <input type="date" value={date} onChange={e => setDate(e.target.value)} /></div>
 
-      {clash && <div className="warn">Blocked: {lbl(clash.name, 'Somebody')} already holds this card as {emp?.designation}.</div>}
+      {clash && <div className="warn">Blocked: {lbl(clash.name, 'Somebody')} already holds this card.</div>}
     </Sheet>
   )
 }
