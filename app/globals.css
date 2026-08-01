@@ -73,7 +73,11 @@ a{color:var(--seal)}
 .cbtn:disabled{color:var(--ink);text-decoration:none;cursor:default}
 
 .orgtree,.orgtree ul{display:flex;justify-content:center;padding-top:22px;position:relative}
-.orgtree{padding-top:0}
+/* shrink-wrap the root row to its content instead of the scroll container's
+   full width — a flex row centered wider than its own box can't be scrolled
+   to its start edge in most browsers, so give it a real (possibly overflowing)
+   width to scroll against instead */
+.orgtree{padding-top:0;width:max-content;margin:0 auto}
 .orgtree li{display:flex;flex-direction:column;align-items:center;list-style:none;
   position:relative;padding:22px 6px 0}
 .orgtree>li{padding-top:0}
