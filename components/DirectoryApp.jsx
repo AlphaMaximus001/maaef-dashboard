@@ -157,15 +157,13 @@ export default function DirectoryApp({ mode, role, email }) {
     return <span className="wg" style={{ background: w.color, ...(style || {}) }}>{w.label}</span>
   }
 
-  const CHART_DEPTH = 2 // center + this many levels below, before a box needs a click to go further
-
-  const ChartNode = ({ id, depth }) => {
+  // Whole subtree, every level, always expanded — nothing hides and clicking
+  // a box never re-roots the chart, it just selects that office below.
+  const ChartNode = ({ id }) => {
     const o = officeMap[id]; if (!o) return null
     const kids = kidsOf(id)
     const r = rollup(id)
     const L = LEVELS[o.type]
-    const showKids = kids.length > 0 && depth < CHART_DEPTH
-    const buried = kids.length > 0 && depth >= CHART_DEPTH
     return (
       <li>
         <div className={'obox' + (sel === id ? ' on' : '')} onClick={() => setSel(id)}
@@ -174,10 +172,9 @@ export default function DirectoryApp({ mode, role, email }) {
           <span className="nm">{lbl(o.name, 'Untitled ' + L.label.toLowerCase())}</span>
           <WingChip id={o.wing_id} />
           {r.posts > 0 && <span className={'tag' + (r.vac ? ' v' : '')}>{r.filled}/{r.posts}</span>}
-          {buried && <span className="more">+{kids.length} below · open</span>}
         </div>
-        {showKids && (
-          <ul>{kids.map(k => <ChartNode key={k.id} id={k.id} depth={depth + 1} />)}</ul>
+        {kids.length > 0 && (
+          <ul>{kids.map(k => <ChartNode key={k.id} id={k.id} />)}</ul>
         )}
       </li>
     )
@@ -427,27 +424,11 @@ export default function DirectoryApp({ mode, role, email }) {
             {loading ? <div className="hint">Loading…</div>
               : roots.length === 0
                 ? <div className="hint">No offices are visible to you yet. Ask a superadmin to grant you a zone, circle or district.</div>
-                : roots.map(r => {
-                  const centerId = sel && officeMap[sel] && underRoot(sel, r.id) ? sel : r.id
-                  const anc = pathFromRoot(centerId, r.id)
-                  return (
-                    <div className="orgroot" key={r.id}>
-                      {anc.length > 1 && (
-                        <div className="chart-crumb">
-                          {anc.map((p, i) => (
-                            <span key={p.id}>
-                              {i > 0 && ' › '}
-                              <button className="cbtn" disabled={i === anc.length - 1} onClick={() => setSel(p.id)}>
-                                {lbl(p.name, 'Untitled ' + LEVELS[p.type].label.toLowerCase())}
-                              </button>
-                            </span>
-                          ))}
-                        </div>
-                      )}
-                      <ul className="orgtree"><ChartNode id={centerId} depth={0} /></ul>
-                    </div>
-                  )
-                })}
+                : roots.map(r => (
+                  <div className="orgroot" key={r.id}>
+                    <ul className="orgtree"><ChartNode id={r.id} /></ul>
+                  </div>
+                ))}
           </div>
           <div className="chartpage-detail">
             {err && <div className="warn">{err}</div>}
