@@ -25,10 +25,11 @@ const fmt = d => { if (!d) return '—'; const p = String(d).slice(0, 10).split(
 
 export default function DirectoryApp({ mode, role, email }) {
   const supabase = useMemo(() => createClient(), [])
-  const editor = mode === 'entry' && (role === 'admin' || role === 'superadmin')
+  const editor = (mode === 'entry' || mode === 'chart') && (role === 'admin' || role === 'superadmin')
 
   const [db, setDb] = useState({ offices: [], wings: [], posts: [], employees: [], postings: [] })
   const [sel, setSel] = useState(null)
+  const [focus, setFocus] = useState(null) // sidebar drill-nav's current position, independent of what's shown in the main panel
   const [modal, setModal] = useState(null)
   const [toast, setToast] = useState('')
   const [q, setQ] = useState('')
@@ -94,6 +95,9 @@ export default function DirectoryApp({ mode, role, email }) {
   useEffect(() => {
     if (!loading && !sel && roots.length) setSel(roots[0].id)
   }, [loading, sel, roots])
+  useEffect(() => {
+    if (!loading && focus == null && roots.length) setFocus(roots[0].id)
+  }, [loading, focus, roots])
 
   // ---------- writes ----------
   const guard = async fn => { try { await fn(); await load() } catch (e) { say(e.message || 'That did not save') } }
@@ -145,7 +149,7 @@ export default function DirectoryApp({ mode, role, email }) {
     return out.slice(0, 24)
   }, [q, db]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  const goOffice = id => { setSel(id); setQ('') }
+  const goOffice = id => { setSel(id); setFocus(id); setQ('') }
 
   // ---------- render helpers ----------
   const WingChip = ({ id, style }) => {
@@ -176,6 +180,49 @@ export default function DirectoryApp({ mode, role, email }) {
           <ul>{kids.map(k => <ChartNode key={k.id} id={k.id} depth={depth + 1} />)}</ul>
         )}
       </li>
+    )
+  }
+
+  // Sidebar navigator: one office at a time — a details button and a dropdown
+  // to the next level down. Drilling down never touches the main panel until
+  // "Office details" is pressed, so browsing doesn't jump the page around.
+  const DrillNav = () => {
+    const o = officeMap[focus]
+    if (!o) return null
+    const L = LEVELS[o.type]
+    const kids = kidsOf(focus)
+    const rootMatch = roots.find(r => underRoot(focus, r.id))
+    const anc = rootMatch ? pathFromRoot(focus, rootMatch.id) : [o]
+    return (
+      <div className="dnav">
+        {anc.length > 1 && (
+          <div className="chart-crumb">
+            {anc.map((p, i) => (
+              <span key={p.id}>
+                {i > 0 && ' › '}
+                <button className="cbtn" disabled={i === anc.length - 1} onClick={() => setFocus(p.id)}>
+                  {lbl(p.name, 'Untitled ' + LEVELS[p.type].label.toLowerCase())}
+                </button>
+              </span>
+            ))}
+          </div>
+        )}
+        <div className="dnav-card">
+          <span className="lvl" style={{ background: L.color }}>{L.abbr}</span>
+          <span className="dnav-nm">{lbl(o.name, 'Untitled ' + L.label.toLowerCase())}</span>
+        </div>
+        <div className="dnav-btns">
+          <button className={'btn sm' + (sel === focus ? '' : ' gh')} onClick={() => setSel(focus)}>Office details</button>
+          {kids.length > 0 ? (
+            <select value="" onChange={e => { if (e.target.value) setFocus(e.target.value) }}>
+              <option value="">{LEVELS[L.next].label}s ▾</option>
+              {kids.map(k => <option key={k.id} value={k.id}>{lbl(k.name, 'Untitled ' + LEVELS[k.type].label.toLowerCase())}</option>)}
+            </select>
+          ) : (
+            <div className="hint" style={{ margin: '4px 0 0' }}>Nothing below this office.</div>
+          )}
+        </div>
+      </div>
     )
   }
 
@@ -240,7 +287,7 @@ export default function DirectoryApp({ mode, role, email }) {
     if (!o) return (
       <div className="blank">
         <p>Nothing selected.</p>
-        <div className="sub">Pick an office from the list on the left.</div>
+        <div className="sub">Pick an office to see its details.</div>
       </div>
     )
     const L = LEVELS[o.type]
@@ -335,41 +382,51 @@ export default function DirectoryApp({ mode, role, email }) {
     )
   }
 
-  // ---------- shell ----------
-  return (
-    <>
-      <TopBar role={role} email={email}>
-        <div className="searchwrap">
-          <input className="search" value={q} onChange={e => setQ(e.target.value)}
-            placeholder="Search people, posts, offices" autoComplete="off" />
-          {results && (
-            <div className="results">
-              {results.length === 0
-                ? <div className="res" style={{ color: 'var(--ink3)' }}>Nothing matches that.</div>
-                : results.map((r, i) => (
-                  <button className="res" key={i}
-                    onClick={() => r.go === 'emp' ? (setModal({ kind: 'record', empId: r.id }), setQ('')) : goOffice(r.id)}>
-                    <b>{r.t}</b><i>{r.s}</i>
-                  </button>
-                ))}
-            </div>
-          )}
+  // ---------- shared bits between the two layouts ----------
+  const searchBox = (
+    <div className="searchwrap">
+      <input className="search" value={q} onChange={e => setQ(e.target.value)}
+        placeholder="Search people, posts, offices" autoComplete="off" />
+      {results && (
+        <div className="results">
+          {results.length === 0
+            ? <div className="res" style={{ color: 'var(--ink3)' }}>Nothing matches that.</div>
+            : results.map((r, i) => (
+              <button className="res" key={i}
+                onClick={() => r.go === 'emp' ? (setModal({ kind: 'record', empId: r.id }), setQ('')) : goOffice(r.id)}>
+                <b>{r.t}</b><i>{r.s}</i>
+              </button>
+            ))}
         </div>
-      </TopBar>
+      )}
+    </div>
+  )
 
-      <div className="shell">
-        <aside className="side">
-          <div className="side-h">
-            <span className="eyebrow">Office hierarchy</span>
+  const modalsAndToast = (
+    <>
+      {modal && <Dialogs
+        modal={modal} setModal={setModal} db={db} supabase={supabase} role={role}
+        helpers={{ officeMap, wingMap, kidsOf, postsOf, occOf, historyOf, openTerm, pathOf, pathStr, descendants, assign, bench, conflictOn, guard, die, say, load, roots, setSel }}
+      />}
+      {toast && <div className="toast">{toast}</div>}
+    </>
+  )
+
+  // ---------- dedicated chart page ----------
+  if (mode === 'chart') {
+    return (
+      <>
+        <TopBar role={role} email={email}>{searchBox}</TopBar>
+        <div className="chartpage">
+          <div className="chartpage-h">
+            <span className="eyebrow">Office chart</span>
             {editor && roots.length > 0 &&
               <button className="btn gh sm" onClick={() => setModal({ kind: 'office', parentId: roots[0].id })}>+ Zone</button>}
           </div>
-          <div className="tree">
-            {loading ? <div className="hint" style={{ padding: '6px 4px' }}>Loading…</div>
+          <div className="chartbig">
+            {loading ? <div className="hint">Loading…</div>
               : roots.length === 0
-                ? <div className="hint" style={{ padding: '6px 4px' }}>
-                  No offices are visible to you yet. Ask a superadmin to grant you a zone, circle or district.
-                </div>
+                ? <div className="hint">No offices are visible to you yet. Ask a superadmin to grant you a zone, circle or district.</div>
                 : roots.map(r => {
                   const centerId = sel && officeMap[sel] && underRoot(sel, r.id) ? sel : r.id
                   const anc = pathFromRoot(centerId, r.id)
@@ -391,6 +448,36 @@ export default function DirectoryApp({ mode, role, email }) {
                     </div>
                   )
                 })}
+          </div>
+          <div className="chartpage-detail">
+            {err && <div className="warn">{err}</div>}
+            <OfficePanel />
+          </div>
+        </div>
+        {modalsAndToast}
+      </>
+    )
+  }
+
+  // ---------- dashboard / entry shell ----------
+  return (
+    <>
+      <TopBar role={role} email={email}>{searchBox}</TopBar>
+
+      <div className="shell">
+        <aside className="side">
+          <div className="side-h">
+            <span className="eyebrow">Office hierarchy</span>
+            {editor && roots.length > 0 &&
+              <button className="btn gh sm" onClick={() => setModal({ kind: 'office', parentId: roots[0].id })}>+ Zone</button>}
+          </div>
+          <div className="tree">
+            {loading ? <div className="hint" style={{ padding: '6px 4px' }}>Loading…</div>
+              : roots.length === 0
+                ? <div className="hint" style={{ padding: '6px 4px' }}>
+                  No offices are visible to you yet. Ask a superadmin to grant you a zone, circle or district.
+                </div>
+                : <DrillNav />}
           </div>
 
           <div className="bench">
@@ -425,11 +512,7 @@ export default function DirectoryApp({ mode, role, email }) {
         </main>
       </div>
 
-      {modal && <Dialogs
-        modal={modal} setModal={setModal} db={db} supabase={supabase} role={role}
-        helpers={{ officeMap, wingMap, kidsOf, postsOf, occOf, historyOf, openTerm, pathOf, pathStr, descendants, assign, bench, conflictOn, guard, die, say, load, roots, setSel }}
-      />}
-      {toast && <div className="toast">{toast}</div>}
+      {modalsAndToast}
     </>
   )
 }

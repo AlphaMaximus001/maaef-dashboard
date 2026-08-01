@@ -97,6 +97,21 @@ a{color:var(--seal)}
 .obox.on .nm{color:var(--seal)}
 .obox .more{font-family:var(--disp);text-transform:uppercase;letter-spacing:.05em;font-size:9px;color:var(--canal)}
 
+/* ---------- sidebar drill nav ---------- */
+.dnav{padding:2px 2px 4px}
+.dnav-card{display:flex;align-items:center;gap:7px;padding:8px 9px;background:var(--paper);
+  border:1px solid var(--rule);border-radius:var(--r);margin-bottom:8px}
+.dnav-nm{flex:1;min-width:0;font-weight:600;font-size:13.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.dnav-btns{display:flex;flex-direction:column;gap:7px}
+.dnav-btns select{width:100%;background:#fff;border:1px solid var(--cover2);border-radius:2px;
+  padding:6px 8px;color:var(--ink);font-family:var(--body);font-size:13px}
+
+/* ---------- dedicated chart page ---------- */
+.chartpage{max-width:1200px;margin:0 auto;padding:20px 22px 60px}
+.chartpage-h{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:4px}
+.chartbig{overflow:auto;padding:18px 4px 26px;border-bottom:2px solid var(--ink);margin-bottom:22px}
+.chartpage-detail{background:var(--paper);border:1px solid var(--cover2);border-radius:var(--r);padding:18px 20px}
+
 /* ---------- bench ---------- */
 .bench{border-top:1px solid var(--cover2);background:#DFD6C0;max-height:34vh;display:flex;flex-direction:column}
 .bench-h{padding:10px 14px 6px;display:flex;align-items:center;justify-content:space-between;gap:8px}
