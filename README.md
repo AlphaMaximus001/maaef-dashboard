@@ -134,4 +134,6 @@ components/UsersAdmin.jsx    the users table
   Benched people are hidden from them, because a benched person belongs to no office.
 - Deleting an office cascades to its children and their department cards.
   Anyone on those posts is moved to the bench first, so no person record is lost.
-- Only a superadmin can change roles, grant access, delete offices or delete people.
+- Admins and superadmins can create, edit and delete department cards and employee
+  cards. Deleting an employee card also deletes that person's posting history.
+- Only a superadmin can change roles, grant access, rename an office, or delete an office.

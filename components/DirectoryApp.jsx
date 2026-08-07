@@ -602,7 +602,7 @@ function Dialogs({ modal, setModal, db, supabase, role, helpers }) {
       <Sheet wide title={lbl(e.name, 'Unnamed person')}
         footer={<>
           <button className="btn gh" onClick={shut}>Close</button>
-          {role === 'superadmin' && <button className="btn gh dg" onClick={() => guard(async () => {
+          {editor && <button className="btn gh dg" onClick={() => guard(async () => {
             die(await supabase.from('employees').delete().eq('id', e.id)); shut(); say('Employee card deleted')
           })}>Delete</button>}
           {editor && <button className="btn gh" onClick={() => setModal({ kind: 'emp', existing: e })}>Edit</button>}
