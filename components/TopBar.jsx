@@ -18,6 +18,7 @@ export default function TopBar({ role, email, children }) {
       {link('/chart', 'Chart')}
       {editor && link('/entry', 'Entry')}
       {role === 'superadmin' && link('/users', 'Users')}
+      {role === 'superadmin' && link('/changes', 'Changes')}
       <span className="whoami">{email} · {role}</span>
       <SignOut ghost />
     </div>

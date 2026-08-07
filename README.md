@@ -4,8 +4,10 @@ Internal directory for Maaef Enterprises. Tracks which officer sits on which san
 post across the department hierarchy, and keeps the posting history of every person.
 
 - **Dashboard** — read-only. Everyone who is let in lands here.
+- **Chart** — the whole hierarchy on one page.
 - **Entry** — create and edit offices, department cards and people. Admin and superadmin only.
 - **Users** — approve sign-ups, set roles, grant per-office access. Superadmin only.
+- **Changes** — every edit, who made it and when, with a revert button. Superadmin only.
 
 Roles: `pending` → `viewer` → `admin` → `superadmin`.
 Admins and superadmins see and edit everything. Viewers see only the offices granted to them.
@@ -110,8 +112,10 @@ app/pending                  holding screen for unapproved accounts
 app/dashboard                read-only directory
 app/entry                    the same directory, with editing on
 app/users                    role and access management
+app/changes                  the change log, superadmin only
 components/DirectoryApp.jsx  tree, department cards, people, history, dialogs
 components/UsersAdmin.jsx    the users table
+components/ChangeLog.jsx     the change log and its revert buttons
 ```
 
 ## Notes on the data model
@@ -137,3 +141,28 @@ components/UsersAdmin.jsx    the users table
 - Admins and superadmins can create, edit and delete department cards and employee
   cards. Deleting an employee card also deletes that person's posting history.
 - Only a superadmin can change roles, grant access, rename an office, or delete an office.
+- Only a superadmin can read the change log or revert anything.
+
+## The change log
+
+Postgres triggers record every insert, update and delete on offices, department
+cards, people, postings, wings, roles and access grants. The log is written by
+the database, not by the app, so a change cannot avoid it by going round the UI —
+and nothing but the trigger can write to `audit_log`, so it cannot be edited after
+the fact.
+
+**Revert** puts one record back the way it was: an edit gets its old values, a
+deletion comes back with its original id, a creation is removed again. Changes
+made by a single action — deleting an office takes its children and their cards
+with it — share a transaction id, so they group together and can be undone in one
+go, newest first, so parents return before the rows that point at them. A revert
+is itself a change, so it appears in the log too.
+
+Two things it will refuse rather than guess: undoing an edit to a record that has
+since been deleted, and any revert in a group where one step fails — the whole
+group rolls back and nothing changes.
+
+## Upgrading an existing project
+
+`supabase/schema.sql` is safe to re-run: paste the whole file into the SQL Editor
+again to pick up the change log without touching the data you already have.
