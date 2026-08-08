@@ -185,6 +185,43 @@ filter for that.
 The quick box in the top bar is still the fastest way to jump to something you can
 name; it stops at 24 results and ends with a link into the full search.
 
+## Operations that must not half-happen
+
+Posting somebody, benching them, moving a card and deleting a card or an office
+each need several writes that only make sense together — close the old term,
+move the person, open the new term. Run from the browser as separate calls, a
+dropped connection half way through leaves a person on a post with no open
+posting, or an office deleted with its people still attached to cards that no
+longer exist.
+
+Each of these is now a single database function, so it is a single transaction:
+all of it happens or none of it does.
+
+| Function | What it does |
+|---|---|
+| `assign_employee(emp, post, on_date)` | closes the open term, moves the person, opens the new term |
+| `bench_employee(emp, on_date)` | closes the open term and takes the person off their post |
+| `move_post(post, dest, corrected, on_date)` | moves a card and fixes up every affected service record |
+| `delete_post(post, on_date)` | benches the holders, then removes the card |
+| `delete_office(office, on_date)` | benches everyone below, then removes the office and its children |
+
+Two things fall out of this. The one-holder rule on a named card is now enforced
+by the database rather than only by the UI, so two admins acting at the same
+moment cannot both fill the same post. And because a whole operation is one
+transaction, the change log records it as **one action** — a transfer is a single
+revertible entry rather than three unrelated rows, and deleting an office with
+everything under it comes back in one click.
+
+The functions are security invoker, so row level security still applies to every
+statement inside them and they can never become a way round it. The `is_editor()`
+check on top of each is there to fail with a clear message rather than silently
+write nothing.
+
+**Still not atomic:** *Entry → Import backup* writes its rows one at a time, so a
+failure part way through leaves a partly-imported directory. It is a one-off
+migration tool from the prototype rather than day-to-day use, and the change log
+now records everything it does.
+
 ## The change log
 
 Postgres triggers record every insert, update and delete on offices, department

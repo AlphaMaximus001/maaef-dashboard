@@ -95,30 +95,19 @@ export default function DirectoryApp({ mode, role, email, initialOffice }) {
   const guard = async fn => { try { await fn(); await load() } catch (e) { say(e.message || 'That did not save') } }
   const die = r => { if (r.error) throw r.error; return r.data }
 
-  const closeOpenTerm = async (empId, date) => {
-    const t = openTerm(empId)
-    if (t) die(await supabase.from('postings').update({ to_date: date }).eq('id', t.id))
-  }
+  // conflictOn only warns in the UI — assign_employee enforces the same rule in
+  // the database, where two admins acting at once cannot slip past it
   const conflictOn = (postId, empId) => {
     const post = db.posts.find(p => p.id === postId)
     if (!post || !norm(post.title)) return null
     return occOf(postId).find(e => e.id !== empId) || null
   }
-  const assign = async (empId, postId, date) => {
-    const emp = db.employees.find(e => e.id === empId)
-    const post = db.posts.find(p => p.id === postId)
-    if (!emp || !post) return
-    await closeOpenTerm(empId, date)
-    die(await supabase.from('employees').update({ post_id: postId }).eq('id', empId))
-    die(await supabase.from('postings').insert({
-      employee_id: empId, post_id: postId,
-      post_title: post.title, office_path: pathStr(post.office_id), from_date: date
-    }))
-  }
-  const bench = async (empId, date) => {
-    await closeOpenTerm(empId, date)
-    die(await supabase.from('employees').update({ post_id: null }).eq('id', empId))
-  }
+  // Each of these is one transaction on the server: closing the old term,
+  // moving the person and opening the new term either all happen or none do.
+  const assign = async (empId, postId, date) =>
+    die(await supabase.rpc('assign_employee', { emp: empId, post: postId, on_date: date }))
+  const bench = async (empId, date) =>
+    die(await supabase.rpc('bench_employee', { emp: empId, on_date: date }))
 
   // ---------- search ----------
   const results = useMemo(() => {
@@ -536,8 +525,7 @@ function Dialogs({ modal, setModal, db, supabase, role, helpers }) {
           <button className="btn gh" onClick={shut}>Cancel</button>
           <button className="btn" style={{ background: 'var(--seal)', borderColor: 'var(--seal)' }}
             onClick={() => guard(async () => {
-              for (const i of all) for (const p of postsOf(i)) for (const e of occOf(p.id)) await bench(e.id, new Date().toISOString().slice(0, 10))
-              die(await supabase.from('offices').delete().eq('id', id))
+              die(await supabase.rpc('delete_office', { office: id, on_date: today() }))
               setSel(roots.length ? roots[0].id : null); shut(); say('Office deleted')
             })}>Delete</button>
         </>}>
@@ -557,7 +545,7 @@ function Dialogs({ modal, setModal, db, supabase, role, helpers }) {
   }
 
   if (modal.kind === 'movePost') {
-    return <MovePostDialog {...{ modal, shut, db, supabase, Sheet, postsOf, occOf, openTerm, pathStr, guard, die, say, setSel }} />
+    return <MovePostDialog {...{ modal, shut, db, supabase, Sheet, postsOf, occOf, pathStr, guard, die, say, setSel }} />
   }
 
   if (modal.kind === 'delPost') {
@@ -569,8 +557,7 @@ function Dialogs({ modal, setModal, db, supabase, role, helpers }) {
           <button className="btn gh" onClick={shut}>Cancel</button>
           <button className="btn" style={{ background: 'var(--seal)', borderColor: 'var(--seal)' }}
             onClick={() => guard(async () => {
-              for (const e of occ) await bench(e.id, new Date().toISOString().slice(0, 10))
-              die(await supabase.from('posts').delete().eq('id', modal.id))
+              die(await supabase.rpc('delete_post', { post: modal.id, on_date: today() }))
               shut(); say('Card deleted')
             })}>Delete</button>
         </>}>
@@ -784,7 +771,7 @@ function PostDialog({ modal, shut, supabase, Sheet, pathStr, guard, die, say }) 
 }
 
 /* ---------- move a department card to another office ---------- */
-function MovePostDialog({ modal, shut, db, supabase, Sheet, postsOf, occOf, openTerm, pathStr, guard, die, say, setSel }) {
+function MovePostDialog({ modal, shut, db, supabase, Sheet, postsOf, occOf, pathStr, guard, die, say, setSel }) {
   const post = db.posts.find(p => p.id === modal.id)
   const offices = useMemo(
     () => db.offices.slice().sort((a, b) => pathStr(a.id).localeCompare(pathStr(b.id))),
@@ -811,29 +798,13 @@ function MovePostDialog({ modal, shut, db, supabase, Sheet, postsOf, occOf, open
     ? postsOf(dest).find(x => norm(x.title) === norm(post.title))
     : null
 
+  // one transaction: the card and every affected service record move together,
+  // or nothing moves at all
   const save = () => guard(async () => {
     if (!moving) { shut(); return }
-    const path = pathStr(dest)
-    die(await supabase.from('posts').update({ office_id: dest }).eq('id', post.id))
-
-    // The card carries its people with it — they are attached to the post, not
-    // to the office — so each open term needs saying something about the move.
-    for (const e of occ) {
-      const t = openTerm(e.id)
-      if (why === 'moved') {
-        // close the term at the old office and open one at the new, so the
-        // service record shows the officer at both places, with dates
-        if (t) die(await supabase.from('postings').update({ to_date: date }).eq('id', t.id))
-        die(await supabase.from('postings').insert({
-          employee_id: e.id, post_id: post.id, post_title: post.title,
-          office_path: path, from_date: date
-        }))
-      } else if (t) {
-        // a correction: the open term was always at the new place. Closed terms
-        // are left alone — wherever they say the officer was, they were.
-        die(await supabase.from('postings').update({ office_path: path }).eq('id', t.id))
-      }
-    }
+    die(await supabase.rpc('move_post', {
+      post: post.id, dest, corrected: why === 'fix', on_date: date
+    }))
     setSel(dest); shut(); say('Card moved')
   })
 
