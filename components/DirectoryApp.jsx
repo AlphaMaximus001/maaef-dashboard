@@ -223,6 +223,7 @@ export default function DirectoryApp({ mode, role, email, initialOffice }) {
         {editor && (
           <div className="post-a">
             <button className="icb" title="Edit post" onClick={() => setModal({ kind: 'post', officeId: p.office_id, existing: p })}>✎</button>
+            <button className="icb" title="Move this card to another office" onClick={() => setModal({ kind: 'movePost', id: p.id })}>⇢</button>
             <button className="icb" title="Delete post" onClick={() => setModal({ kind: 'delPost', id: p.id })}>✕</button>
           </div>
         )}
@@ -555,6 +556,10 @@ function Dialogs({ modal, setModal, db, supabase, role, helpers }) {
     return <PostDialog {...{ modal, shut, supabase, Sheet, pathStr, guard, die, say }} />
   }
 
+  if (modal.kind === 'movePost') {
+    return <MovePostDialog {...{ modal, shut, db, supabase, Sheet, postsOf, occOf, openTerm, pathStr, guard, die, say, setSel }} />
+  }
+
   if (modal.kind === 'delPost') {
     const p = db.posts.find(x => x.id === modal.id)
     const occ = occOf(modal.id)
@@ -774,6 +779,124 @@ function PostDialog({ modal, shut, supabase, Sheet, pathStr, guard, die, say }) 
           placeholder="Jurisdiction, office address, charge held, anything worth remembering" />
       </div>
       <datalist id="dl_desig">{DESIGS.map(d => <option key={d} value={d} />)}</datalist>
+    </Sheet>
+  )
+}
+
+/* ---------- move a department card to another office ---------- */
+function MovePostDialog({ modal, shut, db, supabase, Sheet, postsOf, occOf, openTerm, pathStr, guard, die, say, setSel }) {
+  const post = db.posts.find(p => p.id === modal.id)
+  const offices = useMemo(
+    () => db.offices.slice().sort((a, b) => pathStr(a.id).localeCompare(pathStr(b.id))),
+    [db.offices] // eslint-disable-line react-hooks/exhaustive-deps
+  )
+  // 'fix'   — the card was only ever recorded in the wrong office
+  // 'moved' — the post really did change office on a date
+  const [why, setWhy] = useState('fix')
+  const [dest, setDest] = useState(post ? post.office_id : '')
+  const [date, setDate] = useState(today())
+
+  if (!post) {
+    return (
+      <Sheet title="Move this department card"
+        footer={<button className="btn gh" onClick={shut}>Close</button>}>
+        <div className="warn">That card no longer exists.</div>
+      </Sheet>
+    )
+  }
+
+  const occ = occOf(post.id)
+  const moving = !!dest && dest !== post.office_id
+  const clash = moving && norm(post.title)
+    ? postsOf(dest).find(x => norm(x.title) === norm(post.title))
+    : null
+
+  const save = () => guard(async () => {
+    if (!moving) { shut(); return }
+    const path = pathStr(dest)
+    die(await supabase.from('posts').update({ office_id: dest }).eq('id', post.id))
+
+    // The card carries its people with it — they are attached to the post, not
+    // to the office — so each open term needs saying something about the move.
+    for (const e of occ) {
+      const t = openTerm(e.id)
+      if (why === 'moved') {
+        // close the term at the old office and open one at the new, so the
+        // service record shows the officer at both places, with dates
+        if (t) die(await supabase.from('postings').update({ to_date: date }).eq('id', t.id))
+        die(await supabase.from('postings').insert({
+          employee_id: e.id, post_id: post.id, post_title: post.title,
+          office_path: path, from_date: date
+        }))
+      } else if (t) {
+        // a correction: the open term was always at the new place. Closed terms
+        // are left alone — wherever they say the officer was, they were.
+        die(await supabase.from('postings').update({ office_path: path }).eq('id', t.id))
+      }
+    }
+    setSel(dest); shut(); say('Card moved')
+  })
+
+  return (
+    <Sheet title="Move this department card"
+      footer={<>
+        <button className="btn gh" onClick={shut}>Cancel</button>
+        <button className="btn" onClick={save} disabled={!moving}>Move card</button>
+      </>}>
+      <div className="hint" style={{ marginTop: -2 }}>
+        <b>{lbl(post.title, 'Untitled post')}</b> — currently at {pathStr(post.office_id)}
+      </div>
+
+      <div className="fld">
+        <label>Move it to</label>
+        <select value={dest} onChange={e => setDest(e.target.value)}>
+          {offices.map(o => (
+            <option key={o.id} value={o.id}>
+              {pathStr(o.id)}{o.id === post.office_id ? '  (where it is now)' : ''}
+            </option>
+          ))}
+        </select>
+      </div>
+
+      {clash && (
+        <div className="warn">
+          {pathStr(dest)} already has a card called “{lbl(clash.title, 'Untitled post')}”.
+          Moving this one there leaves two of them — allowed, but worth a look first.
+        </div>
+      )}
+
+      <div className="fld">
+        <label>Why is it moving</label>
+        <label className="rad">
+          <input type="radio" name="why" checked={why === 'fix'} onChange={() => setWhy('fix')} />
+          <span>
+            <b>It was recorded in the wrong place.</b> The card simply belongs at the new office.
+            {occ.length > 0 && ' The current posting is corrected to match; closed postings are left as they are.'}
+          </span>
+        </label>
+        <label className="rad">
+          <input type="radio" name="why" checked={why === 'moved'} onChange={() => setWhy('moved')} />
+          <span>
+            <b>The post has actually moved office.</b>
+            {occ.length > 0
+              ? ' Each current posting is closed at the old office and reopened at the new one, so the service record shows both.'
+              : ' Nobody holds this card, so nothing is written to any service record.'}
+          </span>
+        </label>
+      </div>
+
+      {why === 'moved' && occ.length > 0 && (
+        <div className="fld">
+          <label>Effective date</label>
+          <input type="date" value={date} onChange={e => setDate(e.target.value)} />
+        </div>
+      )}
+
+      <div className="hint" style={{ marginBottom: 0 }}>
+        {occ.length === 0
+          ? 'This card is vacant, so only the card itself moves.'
+          : `${occ.map(e => lbl(e.name, 'Unnamed person')).join(', ')} ${occ.length > 1 ? 'move' : 'moves'} with the card — people are attached to the post, not to the office. The official number on the card goes too.`}
+      </div>
     </Sheet>
   )
 }

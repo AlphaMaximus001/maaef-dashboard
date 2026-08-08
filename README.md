@@ -134,6 +134,15 @@ components/ChangeLog.jsx     the change log and its revert buttons
 - Every posting writes a row in `postings` with a from date, and closes the
   previous row with a to date. Post titles and office paths are copied into that
   row, so history survives an office or post being deleted later.
+- A department card can be **moved to any other office** — Bareilly District to
+  Lucknow Circle, or anywhere else — with the ⇢ button on the card. It takes its
+  official number and whoever holds it, because people attach to the post rather
+  than to the office. You are asked which kind of move it is:
+  - *recorded in the wrong place* — the current posting is corrected to the new
+    office and closed postings are left alone, since those are still true;
+  - *the post has actually moved* — the current posting is closed at the old
+    office on a date you give and reopened at the new one, so the service record
+    shows the officer at both places.
 - **Wings** (Civil, E&M, Revenue, or your own) tag an office so the parallel
   branches under a tubewell division group separately instead of interleaving.
 

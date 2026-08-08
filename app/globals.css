@@ -156,7 +156,7 @@ a{color:var(--seal)}
 .post{position:relative;background:var(--paper);border:1px solid var(--rule);border-left:4px solid var(--seal);
   border-radius:var(--r);padding:12px 14px 12px 15px}
 .post.vac{border-left-color:var(--vac);border-left-style:dashed}
-.post-t{font-family:var(--disp);font-size:19px;font-weight:600;line-height:1.15;margin:0 60px 2px 0}
+.post-t{font-family:var(--disp);font-size:19px;font-weight:600;line-height:1.15;margin:0 88px 2px 0}
 .post-ph{font-family:var(--mono);font-size:12px;color:var(--canal)}
 .post-ph.none{color:var(--ink3)}
 .post-n{margin-top:8px;padding-top:8px;border-top:1px dotted var(--rule);font-size:12.5px;color:var(--ink2);
@@ -217,6 +217,11 @@ a{color:var(--seal)}
 .fld input[type=date],.fld .mono{font-family:var(--mono);font-size:13px}
 .fld textarea{min-height:74px;resize:vertical}
 .two{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.rad{display:flex;gap:8px;align-items:flex-start;background:#F7F5EE;border:1px solid var(--rule);
+  border-radius:2px;padding:8px 10px;margin-bottom:6px;cursor:pointer;font-size:12.5px;color:var(--ink2)}
+.rad:hover{border-color:var(--cover2)}
+.rad input{margin:2px 0 0;flex-shrink:0}
+.rad b{color:var(--ink);font-weight:600}
 .warn{background:var(--seal-soft);border:1px solid #DCC2C2;border-left:3px solid var(--seal);border-radius:2px;
   padding:8px 10px;font-size:12.5px;color:var(--seal);margin-bottom:12px}
 .hint{font-size:12px;color:var(--ink3);margin:-7px 0 12px}
