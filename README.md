@@ -4,6 +4,7 @@ Internal directory for Maaef Enterprises. Tracks which officer sits on which san
 post across the department hierarchy, and keeps the posting history of every person.
 
 - **Dashboard** — read-only. Everyone who is let in lands here.
+- **Search** — one box across names, positions, both phone numbers, offices and notes.
 - **Chart** — the whole hierarchy on one page.
 - **Entry** — create and edit offices, department cards and people. Admin and superadmin only.
 - **Users** — approve sign-ups, set roles, grant per-office access. Superadmin only.
@@ -112,9 +113,13 @@ app/pending                  holding screen for unapproved accounts
 app/dashboard                read-only directory
 app/entry                    the same directory, with editing on
 app/users                    role and access management
+app/search                   global search across every field
 app/changes                  the change log, superadmin only
+lib/directory.js             office levels and the shared text helpers
+lib/search.js                the matching behind the search page
 components/DirectoryApp.jsx  tree, department cards, people, history, dialogs
 components/UsersAdmin.jsx    the users table
+components/SearchApp.jsx     the search page
 components/ChangeLog.jsx     the change log and its revert buttons
 ```
 
@@ -142,6 +147,34 @@ components/ChangeLog.jsx     the change log and its revert buttons
   cards. Deleting an employee card also deletes that person's posting history.
 - Only a superadmin can change roles, grant access, rename an office, or delete an office.
 - Only a superadmin can read the change log or revert anything.
+
+## Search
+
+One box, everything at once. A query is matched against a person's name, their
+personal number, a position's title and its official number, office names, the
+level of an office, and the notes on people and posts. Results come back in
+three sections — people, positions, offices — each saying which field matched,
+so a number that turns up under "office no." is not mistaken for a personal one.
+
+- **People with the same name** are gathered under one heading, each line showing
+  the post held and the office it sits in. That is what tells two officers of the
+  same name apart.
+- **Searching a position** lists both the position itself and everyone holding it,
+  anywhere in the department.
+- **Phone numbers match on digits alone**, so `0522-262 0000`, `05222620000` and
+  `262 0000` all find the same post. Queries shorter than three digits are treated
+  as names rather than numbers.
+- **The location filter** narrows everything to one office and all the offices
+  beneath it. People on the bench sit in no office, so a location filter excludes
+  them.
+- **Vacant positions only** is there for filling gaps.
+
+An office matches on its own name and level, not on the names of its ancestors —
+otherwise searching a zone would list every office beneath it. Use the location
+filter for that.
+
+The quick box in the top bar is still the fastest way to jump to something you can
+name; it stops at 24 results and ends with a link into the full search.
 
 ## The change log
 

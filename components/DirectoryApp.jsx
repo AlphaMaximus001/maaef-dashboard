@@ -1,29 +1,18 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import Link from 'next/link'
 import { createClient } from '@/lib/supabase/client'
+import { LEVELS, lbl, norm, today, fmt } from '@/lib/directory'
 import TopBar from './TopBar'
 
-const LEVELS = {
-  head:        { next: 'zone',        label: 'Head Office',        abbr: 'HO',     color: '#8B0000' },
-  zone:        { next: 'circle',      label: 'Zone',               abbr: 'ZONE',   color: '#2E5D62' },
-  circle:      { next: 'district',    label: 'Circle',             abbr: 'CIRCLE', color: '#4A7A6E' },
-  district:    { next: 'subdistrict', label: 'District',           abbr: 'DIST',   color: '#7C7A4A' },
-  subdistrict: { next: null,          label: 'Sub-district office', abbr: 'SUB',   color: '#9A8B6B' }
-}
 const DESIGS = ['Engineer-in-Chief', 'Chief Engineer', 'Superintending Engineer', 'Executive Engineer',
   'Assistant Engineer', 'Assistant Engineer (E&M)', 'Junior Engineer', 'Junior Engineer (E&M)',
   'Electrical & Mechanical Supervisor', 'Head Clerk', 'Accountant', 'Stenographer', 'Computer Operator',
   'Tubewell Operator', 'Beldar', 'Driver', 'Jiledar', 'Sinchpal', 'Sinch Paryavekshak']
 const SWATCH = ['#2E5D62', '#4A4A8A', '#7C7A4A', '#8B0000', '#9A6B14', '#4A7A6E', '#6B4A6B', '#3A5A8A']
 
-const lbl = (s, f) => (String(s == null ? '' : s).trim() || f)
-const norm = s => String(s || '').trim().toLowerCase().replace(/\s+/g, ' ')
-const today = () => new Date().toISOString().slice(0, 10)
-const MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
-const fmt = d => { if (!d) return '—'; const p = String(d).slice(0, 10).split('-'); return `${+p[2]} ${MON[+p[1] - 1]} ${p[0]}` }
-
-export default function DirectoryApp({ mode, role, email }) {
+export default function DirectoryApp({ mode, role, email, initialOffice }) {
   const supabase = useMemo(() => createClient(), [])
   const editor = (mode === 'entry' || mode === 'chart') && (role === 'admin' || role === 'superadmin')
 
@@ -92,9 +81,12 @@ export default function DirectoryApp({ mode, role, email }) {
     return { posts, vac, filled: posts - vac }
   }
 
+  // ?office=<id> lets a search result open straight onto that office
   useEffect(() => {
-    if (!loading && !sel && roots.length) setSel(roots[0].id)
-  }, [loading, sel, roots])
+    if (loading || sel) return
+    if (initialOffice && officeMap[initialOffice]) { setSel(initialOffice); setFocus(initialOffice); return }
+    if (roots.length) setSel(roots[0].id)
+  }, [loading, sel, roots, initialOffice, officeMap])
   useEffect(() => {
     if (!loading && focus == null && roots.length) setFocus(roots[0].id)
   }, [loading, focus, roots])
@@ -394,6 +386,11 @@ export default function DirectoryApp({ mode, role, email }) {
                 <b>{r.t}</b><i>{r.s}</i>
               </button>
             ))}
+          {/* this list is a quick jump and stops at 24 — the search page has the
+              phone matching, the location filter and the full count */}
+          <Link className="res sr-more" href={'/search?q=' + encodeURIComponent(q)} onClick={() => setQ('')}>
+            <b>Search everything for “{q}”</b><i>names · positions · phone numbers · offices</i>
+          </Link>
         </div>
       )}
     </div>
