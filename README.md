@@ -145,6 +145,10 @@ components/ChangeLog.jsx     the change log and its revert buttons
     shows the officer at both places.
 - **Wings** (Civil, E&M, Revenue, or your own) tag an office so the parallel
   branches under a tubewell division group separately instead of interleaving.
+- The figures shown against an office — posts, vacant, filled — count only the
+  posts sanctioned **at that office itself**. Nothing is rolled up from the
+  offices beneath it; each carries its own. A zone with no posts of its own
+  therefore reads zero however many districts sit under it.
 
 ## Security worth knowing
 

@@ -75,10 +75,13 @@ export default function DirectoryApp({ mode, role, email, initialOffice }) {
   const pathFromRoot = (id, rootId) => { const out = []; let c = officeMap[id]; while (c) { out.unshift(c); if (c.id === rootId) break; c = c.parent_id ? officeMap[c.parent_id] : null } return out }
   const underRoot = (id, rootId) => { let c = officeMap[id]; while (c) { if (c.id === rootId) return true; c = c.parent_id ? officeMap[c.parent_id] : null } return false }
   const descendants = id => { let out = []; kidsOf(id).forEach(k => { out.push(k.id); out = out.concat(descendants(k.id)) }); return out }
-  const rollup = id => {
-    const ids = [id].concat(descendants(id)); let posts = 0, vac = 0
-    ids.forEach(i => postsOf(i).forEach(p => { posts++; if (!occOf(p.id).length) vac++ }))
-    return { posts, vac, filled: posts - vac }
+  // Counts for one office and nothing below it. An office's figures describe
+  // the posts sanctioned at that office itself; the offices under it carry
+  // their own.
+  const countOf = id => {
+    const ps = postsOf(id)
+    const vac = ps.filter(p => !occOf(p.id).length).length
+    return { posts: ps.length, vac, filled: ps.length - vac }
   }
 
   // ?office=<id> lets a search result open straight onto that office
@@ -143,7 +146,7 @@ export default function DirectoryApp({ mode, role, email, initialOffice }) {
   const ChartNode = ({ id }) => {
     const o = officeMap[id]; if (!o) return null
     const kids = kidsOf(id)
-    const r = rollup(id)
+    const r = countOf(id)
     const L = LEVELS[o.type]
     return (
       <li>
@@ -272,7 +275,7 @@ export default function DirectoryApp({ mode, role, email, initialOffice }) {
     const L = LEVELS[o.type]
     const posts = postsOf(sel)
     const kids = kidsOf(sel)
-    const r = rollup(sel)
+    const r = countOf(sel)
     const path = pathOf(sel)
     const groups = db.wings.map(w => w.id).concat([null])
 
@@ -297,9 +300,9 @@ export default function DirectoryApp({ mode, role, email, initialOffice }) {
             </div>
           </div>
           <div className="stats">
-            <div><b>{posts.length}</b>posts here</div>
-            <div className="v"><b>{posts.filter(p => !occOf(p.id).length).length}</b>vacant here</div>
-            <div><b>{r.filled}/{r.posts}</b>filled incl. below</div>
+            <div><b>{r.posts}</b>posts here</div>
+            <div className="v"><b>{r.vac}</b>vacant</div>
+            <div><b>{r.filled}/{r.posts}</b>filled</div>
           </div>
         </div>
 
@@ -343,11 +346,13 @@ export default function DirectoryApp({ mode, role, email, initialOffice }) {
                     : (kids.some(k => k.wing_id) ? <div className="wgrp-h">Wing not set</div> : null)}
                   <div className="wgrp-l">
                     {set.map(k => {
-                      const rr = rollup(k.id)
+                      const rr = countOf(k.id)
                       return (
                         <button className="subrow" key={k.id} onClick={() => goOffice(k.id)}>
                           <span className="nm">{lbl(k.name, 'Untitled ' + LEVELS[k.type].label.toLowerCase())}</span>
-                          <span className={'tag' + (rr.vac ? ' v' : '')}>{rr.filled}/{rr.posts} filled</span>
+                          <span className={'tag' + (rr.vac ? ' v' : '')}>
+                            {rr.posts ? `${rr.filled}/${rr.posts} filled` : 'no posts'}
+                          </span>
                         </button>
                       )
                     })}
