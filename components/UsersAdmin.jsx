@@ -2,12 +2,9 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
+import { officeName } from '@/lib/directory'
 import TopBar from './TopBar'
 
-const LEVELS = {
-  head: 'Head Office', zone: 'Zone', circle: 'Circle',
-  district: 'District', subdistrict: 'Sub-district office'
-}
 const ROLES = ['pending', 'viewer', 'admin', 'superadmin']
 const PILL = { superadmin: 'sa', admin: 'ad', pending: 'pd', viewer: '' }
 
@@ -39,7 +36,7 @@ export default function UsersAdmin({ role, email, myId }) {
   const officeMap = useMemo(() => Object.fromEntries(offices.map(o => [o.id, o])), [offices])
   const pathStr = id => {
     const out = []; let c = officeMap[id]
-    while (c) { out.unshift(c.name || 'Untitled ' + LEVELS[c.type].toLowerCase()); c = c.parent_id ? officeMap[c.parent_id] : null }
+    while (c) { out.unshift(officeName(c)); c = c.parent_id ? officeMap[c.parent_id] : null }
     return out.join(' › ')
   }
   const sorted = useMemo(

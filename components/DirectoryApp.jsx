@@ -1,29 +1,18 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import Link from 'next/link'
 import { createClient } from '@/lib/supabase/client'
+import { LEVELS, lbl, norm, today, fmt } from '@/lib/directory'
 import TopBar from './TopBar'
 
-const LEVELS = {
-  head:        { next: 'zone',        label: 'Head Office',        abbr: 'HO',     color: '#8B0000' },
-  zone:        { next: 'circle',      label: 'Zone',               abbr: 'ZONE',   color: '#2E5D62' },
-  circle:      { next: 'district',    label: 'Circle',             abbr: 'CIRCLE', color: '#4A7A6E' },
-  district:    { next: 'subdistrict', label: 'District',           abbr: 'DIST',   color: '#7C7A4A' },
-  subdistrict: { next: null,          label: 'Sub-district office', abbr: 'SUB',   color: '#9A8B6B' }
-}
 const DESIGS = ['Engineer-in-Chief', 'Chief Engineer', 'Superintending Engineer', 'Executive Engineer',
   'Assistant Engineer', 'Assistant Engineer (E&M)', 'Junior Engineer', 'Junior Engineer (E&M)',
   'Electrical & Mechanical Supervisor', 'Head Clerk', 'Accountant', 'Stenographer', 'Computer Operator',
   'Tubewell Operator', 'Beldar', 'Driver', 'Jiledar', 'Sinchpal', 'Sinch Paryavekshak']
 const SWATCH = ['#2E5D62', '#4A4A8A', '#7C7A4A', '#8B0000', '#9A6B14', '#4A7A6E', '#6B4A6B', '#3A5A8A']
 
-const lbl = (s, f) => (String(s == null ? '' : s).trim() || f)
-const norm = s => String(s || '').trim().toLowerCase().replace(/\s+/g, ' ')
-const today = () => new Date().toISOString().slice(0, 10)
-const MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
-const fmt = d => { if (!d) return '—'; const p = String(d).slice(0, 10).split('-'); return `${+p[2]} ${MON[+p[1] - 1]} ${p[0]}` }
-
-export default function DirectoryApp({ mode, role, email }) {
+export default function DirectoryApp({ mode, role, email, initialOffice }) {
   const supabase = useMemo(() => createClient(), [])
   const editor = (mode === 'entry' || mode === 'chart') && (role === 'admin' || role === 'superadmin')
 
@@ -92,9 +81,12 @@ export default function DirectoryApp({ mode, role, email }) {
     return { posts, vac, filled: posts - vac }
   }
 
+  // ?office=<id> lets a search result open straight onto that office
   useEffect(() => {
-    if (!loading && !sel && roots.length) setSel(roots[0].id)
-  }, [loading, sel, roots])
+    if (loading || sel) return
+    if (initialOffice && officeMap[initialOffice]) { setSel(initialOffice); setFocus(initialOffice); return }
+    if (roots.length) setSel(roots[0].id)
+  }, [loading, sel, roots, initialOffice, officeMap])
   useEffect(() => {
     if (!loading && focus == null && roots.length) setFocus(roots[0].id)
   }, [loading, focus, roots])
@@ -103,30 +95,19 @@ export default function DirectoryApp({ mode, role, email }) {
   const guard = async fn => { try { await fn(); await load() } catch (e) { say(e.message || 'That did not save') } }
   const die = r => { if (r.error) throw r.error; return r.data }
 
-  const closeOpenTerm = async (empId, date) => {
-    const t = openTerm(empId)
-    if (t) die(await supabase.from('postings').update({ to_date: date }).eq('id', t.id))
-  }
+  // conflictOn only warns in the UI — assign_employee enforces the same rule in
+  // the database, where two admins acting at once cannot slip past it
   const conflictOn = (postId, empId) => {
     const post = db.posts.find(p => p.id === postId)
     if (!post || !norm(post.title)) return null
     return occOf(postId).find(e => e.id !== empId) || null
   }
-  const assign = async (empId, postId, date) => {
-    const emp = db.employees.find(e => e.id === empId)
-    const post = db.posts.find(p => p.id === postId)
-    if (!emp || !post) return
-    await closeOpenTerm(empId, date)
-    die(await supabase.from('employees').update({ post_id: postId }).eq('id', empId))
-    die(await supabase.from('postings').insert({
-      employee_id: empId, post_id: postId,
-      post_title: post.title, office_path: pathStr(post.office_id), from_date: date
-    }))
-  }
-  const bench = async (empId, date) => {
-    await closeOpenTerm(empId, date)
-    die(await supabase.from('employees').update({ post_id: null }).eq('id', empId))
-  }
+  // Each of these is one transaction on the server: closing the old term,
+  // moving the person and opening the new term either all happen or none do.
+  const assign = async (empId, postId, date) =>
+    die(await supabase.rpc('assign_employee', { emp: empId, post: postId, on_date: date }))
+  const bench = async (empId, date) =>
+    die(await supabase.rpc('bench_employee', { emp: empId, on_date: date }))
 
   // ---------- search ----------
   const results = useMemo(() => {
@@ -231,6 +212,7 @@ export default function DirectoryApp({ mode, role, email }) {
         {editor && (
           <div className="post-a">
             <button className="icb" title="Edit post" onClick={() => setModal({ kind: 'post', officeId: p.office_id, existing: p })}>✎</button>
+            <button className="icb" title="Move this card to another office" onClick={() => setModal({ kind: 'movePost', id: p.id })}>⇢</button>
             <button className="icb" title="Delete post" onClick={() => setModal({ kind: 'delPost', id: p.id })}>✕</button>
           </div>
         )}
@@ -394,6 +376,11 @@ export default function DirectoryApp({ mode, role, email }) {
                 <b>{r.t}</b><i>{r.s}</i>
               </button>
             ))}
+          {/* this list is a quick jump and stops at 24 — the search page has the
+              phone matching, the location filter and the full count */}
+          <Link className="res sr-more" href={'/search?q=' + encodeURIComponent(q)} onClick={() => setQ('')}>
+            <b>Search everything for “{q}”</b><i>names · positions · phone numbers · offices</i>
+          </Link>
         </div>
       )}
     </div>
@@ -538,8 +525,7 @@ function Dialogs({ modal, setModal, db, supabase, role, helpers }) {
           <button className="btn gh" onClick={shut}>Cancel</button>
           <button className="btn" style={{ background: 'var(--seal)', borderColor: 'var(--seal)' }}
             onClick={() => guard(async () => {
-              for (const i of all) for (const p of postsOf(i)) for (const e of occOf(p.id)) await bench(e.id, new Date().toISOString().slice(0, 10))
-              die(await supabase.from('offices').delete().eq('id', id))
+              die(await supabase.rpc('delete_office', { office: id, on_date: today() }))
               setSel(roots.length ? roots[0].id : null); shut(); say('Office deleted')
             })}>Delete</button>
         </>}>
@@ -558,6 +544,10 @@ function Dialogs({ modal, setModal, db, supabase, role, helpers }) {
     return <PostDialog {...{ modal, shut, supabase, Sheet, pathStr, guard, die, say }} />
   }
 
+  if (modal.kind === 'movePost') {
+    return <MovePostDialog {...{ modal, shut, db, supabase, Sheet, postsOf, occOf, pathStr, guard, die, say, setSel }} />
+  }
+
   if (modal.kind === 'delPost') {
     const p = db.posts.find(x => x.id === modal.id)
     const occ = occOf(modal.id)
@@ -567,8 +557,7 @@ function Dialogs({ modal, setModal, db, supabase, role, helpers }) {
           <button className="btn gh" onClick={shut}>Cancel</button>
           <button className="btn" style={{ background: 'var(--seal)', borderColor: 'var(--seal)' }}
             onClick={() => guard(async () => {
-              for (const e of occ) await bench(e.id, new Date().toISOString().slice(0, 10))
-              die(await supabase.from('posts').delete().eq('id', modal.id))
+              die(await supabase.rpc('delete_post', { post: modal.id, on_date: today() }))
               shut(); say('Card deleted')
             })}>Delete</button>
         </>}>
@@ -602,7 +591,7 @@ function Dialogs({ modal, setModal, db, supabase, role, helpers }) {
       <Sheet wide title={lbl(e.name, 'Unnamed person')}
         footer={<>
           <button className="btn gh" onClick={shut}>Close</button>
-          {role === 'superadmin' && <button className="btn gh dg" onClick={() => guard(async () => {
+          {editor && <button className="btn gh dg" onClick={() => guard(async () => {
             die(await supabase.from('employees').delete().eq('id', e.id)); shut(); say('Employee card deleted')
           })}>Delete</button>}
           {editor && <button className="btn gh" onClick={() => setModal({ kind: 'emp', existing: e })}>Edit</button>}
@@ -777,6 +766,108 @@ function PostDialog({ modal, shut, supabase, Sheet, pathStr, guard, die, say }) 
           placeholder="Jurisdiction, office address, charge held, anything worth remembering" />
       </div>
       <datalist id="dl_desig">{DESIGS.map(d => <option key={d} value={d} />)}</datalist>
+    </Sheet>
+  )
+}
+
+/* ---------- move a department card to another office ---------- */
+function MovePostDialog({ modal, shut, db, supabase, Sheet, postsOf, occOf, pathStr, guard, die, say, setSel }) {
+  const post = db.posts.find(p => p.id === modal.id)
+  const offices = useMemo(
+    () => db.offices.slice().sort((a, b) => pathStr(a.id).localeCompare(pathStr(b.id))),
+    [db.offices] // eslint-disable-line react-hooks/exhaustive-deps
+  )
+  // 'fix'   — the card was only ever recorded in the wrong office
+  // 'moved' — the post really did change office on a date
+  const [why, setWhy] = useState('fix')
+  const [dest, setDest] = useState(post ? post.office_id : '')
+  const [date, setDate] = useState(today())
+
+  if (!post) {
+    return (
+      <Sheet title="Move this department card"
+        footer={<button className="btn gh" onClick={shut}>Close</button>}>
+        <div className="warn">That card no longer exists.</div>
+      </Sheet>
+    )
+  }
+
+  const occ = occOf(post.id)
+  const moving = !!dest && dest !== post.office_id
+  const clash = moving && norm(post.title)
+    ? postsOf(dest).find(x => norm(x.title) === norm(post.title))
+    : null
+
+  // one transaction: the card and every affected service record move together,
+  // or nothing moves at all
+  const save = () => guard(async () => {
+    if (!moving) { shut(); return }
+    die(await supabase.rpc('move_post', {
+      post: post.id, dest, corrected: why === 'fix', on_date: date
+    }))
+    setSel(dest); shut(); say('Card moved')
+  })
+
+  return (
+    <Sheet title="Move this department card"
+      footer={<>
+        <button className="btn gh" onClick={shut}>Cancel</button>
+        <button className="btn" onClick={save} disabled={!moving}>Move card</button>
+      </>}>
+      <div className="hint" style={{ marginTop: -2 }}>
+        <b>{lbl(post.title, 'Untitled post')}</b> — currently at {pathStr(post.office_id)}
+      </div>
+
+      <div className="fld">
+        <label>Move it to</label>
+        <select value={dest} onChange={e => setDest(e.target.value)}>
+          {offices.map(o => (
+            <option key={o.id} value={o.id}>
+              {pathStr(o.id)}{o.id === post.office_id ? '  (where it is now)' : ''}
+            </option>
+          ))}
+        </select>
+      </div>
+
+      {clash && (
+        <div className="warn">
+          {pathStr(dest)} already has a card called “{lbl(clash.title, 'Untitled post')}”.
+          Moving this one there leaves two of them — allowed, but worth a look first.
+        </div>
+      )}
+
+      <div className="fld">
+        <label>Why is it moving</label>
+        <label className="rad">
+          <input type="radio" name="why" checked={why === 'fix'} onChange={() => setWhy('fix')} />
+          <span>
+            <b>It was recorded in the wrong place.</b> The card simply belongs at the new office.
+            {occ.length > 0 && ' The current posting is corrected to match; closed postings are left as they are.'}
+          </span>
+        </label>
+        <label className="rad">
+          <input type="radio" name="why" checked={why === 'moved'} onChange={() => setWhy('moved')} />
+          <span>
+            <b>The post has actually moved office.</b>
+            {occ.length > 0
+              ? ' Each current posting is closed at the old office and reopened at the new one, so the service record shows both.'
+              : ' Nobody holds this card, so nothing is written to any service record.'}
+          </span>
+        </label>
+      </div>
+
+      {why === 'moved' && occ.length > 0 && (
+        <div className="fld">
+          <label>Effective date</label>
+          <input type="date" value={date} onChange={e => setDate(e.target.value)} />
+        </div>
+      )}
+
+      <div className="hint" style={{ marginBottom: 0 }}>
+        {occ.length === 0
+          ? 'This card is vacant, so only the card itself moves.'
+          : `${occ.map(e => lbl(e.name, 'Unnamed person')).join(', ')} ${occ.length > 1 ? 'move' : 'moves'} with the card — people are attached to the post, not to the office. The official number on the card goes too.`}
+      </div>
     </Sheet>
   )
 }
